@@ -1,0 +1,431 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## SETUP INSTRUCTIONS — read before activating\n\nThis workflow ships with placeholder values. You MUST replace the following before it will run:\n\n1. **Webhook node** — `authentication: headerAuth` requires a `httpHeaderAuth` credential. Create one in n8n (Credentials → New → Header Auth), name the header e.g. `x-webhook-secret`, and send the matching header from your form's fetch() call.\n\n2. **Google Sheets nodes (4x)** — replace `documentId.value` (`YOUR_GOOGLE_SHEET_ID`) with your own Sheet ID, and create a `googleSheetsOAuth2Api` credential.\n\n3. **Airtable node** — replace `base.value` (`YOUR_AIRTABLE_BASE_ID`) and `table.value` (`YOUR_AIRTABLE_TABLE_ID`) with your own, and create an `airtableTokenApi` credential (personal access token).\n\n4. **Telegram node** — replace `chatId` (`YOUR_TELEGRAM_CHAT_ID`) with your bot's target chat/group ID, and create a `telegramApi` credential using a bot token from @BotFather.\n\n5. **Webhook path** — set `path` to whatever your form posts to, and update your website's fetch URL to match your own n8n instance domain.\n\n6. Set this workflow's error workflow (Settings → Error Workflow) to the companion error-handler workflow so failures get reported instead of failing silently.",
+        "height": 560,
+        "width": 480
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        4928,
+        -144
+      ],
+      "id": "0700e7f2-e20e-412d-91a2-a7ec73f13ddc",
+      "name": "Setup Instructions"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst body = item.body || {};\n\nconst name = (body.name || '').trim() || 'Not provided';\nconst businessName = (body.businessName || '').trim() || 'Not provided';\nconst email = (body.email || '').trim();\nconst phone = (body.phone || '').trim();\nconst segment = body.segment || 'Not specified';\nconst volume = body.volume || 'Not specified';\nconst sourcePage = (body.sourcePage || '').replace('/', '') || 'unknown';\n\nconst emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\nconst phoneRegex = /^[+]?[\\d\\s-]{7,15}$/;\n\nconst emailValid = email ? emailRegex.test(email) : true;\nconst phoneValid = phoneRegex.test(phone);\nconst isValid = name !== 'Not provided' && phoneValid;\n\nlet validationReason = '';\nif (!isValid) {\n  const reasons = [];\n  if (name === 'Not provided') reasons.push('missing name');\n  if (!phoneValid) reasons.push('invalid or missing phone');\n  if (!emailValid) reasons.push('malformed email');\n  validationReason = reasons.join(', ');\n}\n\nconst submittedAtRaw = body.submittedAt || new Date().toISOString();\nlet submittedAt;\ntry {\n  submittedAt = new Date(submittedAtRaw).toLocaleString('en-IN', {\n    timeZone: 'Asia/Kolkata',\n    day: '2-digit',\n    month: 'short',\n    year: 'numeric',\n    hour: '2-digit',\n    minute: '2-digit',\n    hour12: true\n  });\n} catch (e) {\n  submittedAt = submittedAtRaw;\n}\n\nreturn [{\n  json: {\n    body: {\n      name,\n      businessName,\n      email,\n      phone,\n      segment,\n      volume,\n      submittedAt,\n      sourcePage\n    },\n    leadsource: 'website form',\n    status: isValid ? 'new lead' : 'invalid lead',\n    isValid,\n    validationReason,\n    emailValid,\n    phoneValid\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5472,
+        512
+      ],
+      "id": "93dd0f3e-693f-472f-879a-207028acef5b",
+      "name": "Validate & Standardize1",
+      "notesInFlow": true,
+      "notes": "REPLACES old 'standardize lead info' Set node. Same field mapping and IST conversion logic, plus: (1) fallback 'Not provided' so nothing renders as literal 'undefined', (2) phone/email format validation feeding the IF gate downstream, (3) try/catch around toLocaleString for minimal Docker base images lacking full ICU data."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "is-valid-cond",
+              "leftValue": "={{ $json.isValid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5696,
+        512
+      ],
+      "id": "6bfbfa42-641d-458d-9535-161e3fae264a",
+      "name": "Is Valid Lead?1",
+      "notesInFlow": true,
+      "notes": "Garbage/incomplete submissions no longer create CRM records or fire Telegram alerts — logged separately instead."
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nif (!staticData.recentSubmissions) staticData.recentSubmissions = {};\n\nconst item = $input.first().json;\nconst key = `${(item.body.email || '').toLowerCase()}|${item.body.phone}`;\nconst now = Date.now();\nconst windowMs = 5 * 60 * 1000;\n\nfor (const k of Object.keys(staticData.recentSubmissions)) {\n  if (now - staticData.recentSubmissions[k] > windowMs) {\n    delete staticData.recentSubmissions[k];\n  }\n}\n\nconst isDuplicate = !!staticData.recentSubmissions[key];\nstaticData.recentSubmissions[key] = now;\n\nreturn [{\n  json: {\n    ...item,\n    isDuplicate\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5936,
+        384
+      ],
+      "id": "54e34c6a-ecb3-4192-95fc-97b904a589c6",
+      "name": "Dedup Check1",
+      "notesInFlow": true,
+      "notes": "Blocks double-tap/double-submit within a 5-minute window (same email+phone) using n8n's persisted workflow static data. Single-instance safeguard, not a distributed lock — swap for Redis/DB if you move to queue mode with multiple workers."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "is-dup-cond",
+              "leftValue": "={{ $json.isDuplicate }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        6160,
+        384
+      ],
+      "id": "20d06d12-2503-4b65-bc40-56b9aaf31167",
+      "name": "Is Duplicate?1",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Logs"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Logs",
+          "mode": "list",
+          "cachedResultName": "Logs"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "name": "={{ $json.body.name }}",
+            "businessName": "={{ $json.body.businessName }}",
+            "email": "={{ $json.body.email }}",
+            "phone": "={{ $json.body.phone }}",
+            "segment": "={{ $json.body.segment }}",
+            "volume": "={{ $json.body.volume }}",
+            "submittedAt": "={{ $json.body.submittedAt }}",
+            "sourcePage": "={{ $json.body.sourcePage }}",
+            "leadsource": "={{ $json.leadsource }}",
+            "status": "={{ 'INVALID: ' + $json.validationReason }}"
+          },
+          "matchingColumns": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        5920,
+        688
+      ],
+      "id": "a17d0005-2c7c-45e1-a818-e6175682a8bb",
+      "name": "Log Invalid Submission1",
+      "notesInFlow": true,
+      "notes": "Bot spam / malformed POSTs / missing-required-field submissions land here instead of the CRM."
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Logs"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Logs",
+          "mode": "list",
+          "cachedResultName": "Logs"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "name": "={{ $json.body.name }}",
+            "businessName": "={{ $json.body.businessName }}",
+            "email": "={{ $json.body.email }}",
+            "phone": "={{ $json.body.phone }}",
+            "segment": "={{ $json.body.segment }}",
+            "volume": "={{ $json.body.volume }}",
+            "submittedAt": "={{ $json.body.submittedAt }}",
+            "sourcePage": "={{ $json.body.sourcePage }}",
+            "leadsource": "={{ $json.leadsource }}",
+            "status": "=DUPLICATE - suppressed (within 5 min window)"
+          },
+          "matchingColumns": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        6384,
+        576
+      ],
+      "id": "5487ee76-0ee0-4428-8f16-ecbb6a3428a6",
+      "name": "Log Duplicate Submission1",
+      "notesInFlow": true,
+      "notes": "Double-tap submissions get logged for visibility but don't create a second CRM record or trigger a second Telegram ping."
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "your-webhook-path",
+        "authentication": "headerAuth",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        5248,
+        512
+      ],
+      "id": "7dc5e521-7d89-4997-a4c4-7ad73fa7c289",
+      "name": "Webhook",
+      "webhookId": "PLACEHOLDER_WEBHOOK_ID",
+      "notesInFlow": true,
+      "notes": "Requires a httpHeaderAuth credential (shared secret header, e.g. x-webhook-secret). Configure the website form's fetch() to send the matching header, or every submission 401s."
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "YOUR_AIRTABLE_BASE_ID",
+          "mode": "list",
+          "cachedResultName": "CRM Base"
+        },
+        "table": {
+          "__rl": true,
+          "value": "YOUR_AIRTABLE_TABLE_ID",
+          "mode": "list",
+          "cachedResultName": "form submitted"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "businessName": "={{ $json.body.businessName }}",
+            "email": "={{ $json.body.email }}",
+            "phone": "={{ $json.body.phone }}",
+            "segment": "={{ $json.body.segment }}",
+            "volume": "={{ $json.body.volume }}",
+            "submittedAt": "={{ $json.body.submittedAt }}",
+            "sourcePage": "={{ $json.body.sourcePage }}",
+            "leadsource": "={{ $json.leadsource }}",
+            "status": "={{ $json.status }}",
+            "Name": "={{ $json.body.name }}",
+            "Note": "=🔔 New Inquiry  \n\n👤 Name: {{ $json.body.name }} \n📞 Phone: {{ $json.body.phone }} \n👥 Staff Size: {{ $json.body.volume }} \n🌐 Source: {{ $json.body.sourcePage }} \n🕐 Time: {{ $json.body.submittedAt }}  \n\nStatus: New Lead"
+          },
+          "matchingColumns": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [
+        6384,
+        208
+      ],
+      "id": "cb47049a-476d-4e22-81fd-68c027cd751c",
+      "name": "Add to CRM ",
+      "notesInFlow": true,
+      "notes": "BUG FIX CONFIRMED: 'phone' correctly maps to {{ $json.body.phone }}. Previously mapped to {{ $json.body.segment }}, silently overwriting every CRM record's phone number with the segment string. Always audit field mappings against a source-of-truth log, not just execution status."
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=🔔 New Inquiry\n\n👤 Name: {{ $json.body.name }}\n📞 Phone: {{ $json.body.phone }}\n👥 Staff Size: {{ $json.body.volume }}\n🌐 Source: {{ $json.body.sourcePage }}\n🕐 Time: {{ $json.body.submittedAt }}\n\nStatus: New Lead",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        6384,
+        384
+      ],
+      "id": "35b01644-8c87-41e6-8b54-7da81a4726c3",
+      "name": "Send Alert ⚠ ",
+      "webhookId": "PLACEHOLDER_WEBHOOK_ID",
+      "notesInFlow": true,
+      "onError": "continueRegularOutput",
+      "notes": "RECOMMENDATION: point chatId at a Telegram group with 2+ admins, not a single person. onError=continueRegularOutput ensures a Telegram API hiccup never blocks the parallel Sheets/Airtable writes."
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Logs"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Logs",
+          "mode": "list",
+          "cachedResultName": "Logs"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "name": "={{ $json.body.name }}",
+            "businessName": "={{ $json.body.businessName }}",
+            "email": "={{ $json.body.email }}",
+            "phone": "={{ $json.body.phone }}",
+            "segment": "={{ $json.body.segment }}",
+            "volume": "={{ $json.body.volume }}",
+            "submittedAt": "={{ $json.body.submittedAt }}",
+            "sourcePage": "={{ $json.body.sourcePage }}",
+            "leadsource": "={{ $json.leadsource }}",
+            "status": "={{ $json.status }}"
+          },
+          "matchingColumns": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        6384,
+        32
+      ],
+      "id": "98c6a041-08c7-4090-849e-b9d3619c8ed7",
+      "name": "Add raw data",
+      "notesInFlow": true,
+      "notes": "Source-of-truth raw log, independent of CRM field mappings — this is what caught the Airtable phone bug in production."
+    }
+  ],
+  "connections": {
+    "Validate & Standardize1": {
+      "main": [
+        [
+          {
+            "node": "Is Valid Lead?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Valid Lead?1": {
+      "main": [
+        [
+          {
+            "node": "Dedup Check1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Invalid Submission1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedup Check1": {
+      "main": [
+        [
+          {
+            "node": "Is Duplicate?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Duplicate?1": {
+      "main": [
+        [
+          {
+            "node": "Log Duplicate Submission1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Add raw data",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Alert ⚠ ",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Add to CRM ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate & Standardize1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "PLACEHOLDER_INSTANCE_ID"
+  }
+}

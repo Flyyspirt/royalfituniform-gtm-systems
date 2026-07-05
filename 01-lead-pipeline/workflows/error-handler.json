@@ -1,0 +1,175 @@
+{
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        7008,
+        3696
+      ],
+      "id": "cca25751-92b6-4ed6-a32e-a4e7579b7794",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "5527886b-12c9-43ab-9983-0b12a564d92b",
+              "name": "workflowName",
+              "value": "={{ $json.workflow.name }}",
+              "type": "string"
+            },
+            {
+              "id": "20058faf-43bf-4c50-aeca-58701244e728",
+              "name": "nodeName",
+              "value": "={{ $json.execution.lastNodeExecuted }}",
+              "type": "string"
+            },
+            {
+              "id": "2c23c9fd-d344-47e5-bb4b-196909d7292b",
+              "name": "errorMessage",
+              "value": "={{ $json.execution.error.message }}",
+              "type": "string"
+            },
+            {
+              "id": "63ba96bf-a40c-437b-ba80-e1b6e0df2e89",
+              "name": "errorTime",
+              "value": "={{ new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) }}",
+              "type": "string"
+            },
+            {
+              "id": "5a9ec587-a32b-47ca-a800-e4a4af56a822",
+              "name": "executionUrl",
+              "value": "={{ 'https://your-n8n-instance.com/execution/' + $json.execution.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        7216,
+        3696
+      ],
+      "id": "3bcc30bc-db99-46cc-9226-29fc6973c24d",
+      "name": "Edit Fields",
+      "notesInFlow": true,
+      "notes": "Fixed leading '=' on assignment names, and fixed a broken executionUrl concatenation that previously had a stray newline inside the expression."
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=🚨 Workflow Error\n\nWorkflow: {{ $json.workflowName }}\nFailed Node: {{ $json.nodeName }}\nError: {{ $json.errorMessage }}\nTime: {{ $json.errorTime }}\n\n🔗 View execution:\n{{ $json.executionUrl }}\n\nAction: Check n8n immediately.",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        7456,
+        3552
+      ],
+      "id": "dd327c67-caf6-476c-a2c3-f656873c3a97",
+      "name": "Send a text message",
+      "webhookId": "PLACEHOLDER_WEBHOOK_ID",
+      "notesInFlow": true,
+      "notes": "RECOMMENDATION: point chatId at a group with 2+ admins instead of a single person."
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_ERROR_LOG_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "error logs"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "error logs",
+          "mode": "list",
+          "cachedResultName": "error logs"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Workflow": "={{ $json.workflowName }}",
+            "Failed Node": "={{ $json.nodeName }}",
+            "Error Message": "={{ $json.errorMessage }}",
+            "Timestamp": "={{ $json.errorTime }}",
+            "Execution URL": "={{ $json.executionUrl }}",
+            "Status": "Unresolved"
+          },
+          "matchingColumns": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        7456,
+        3792
+      ],
+      "id": "19b5ac09-68a6-4466-8e9f-b59c151469e8",
+      "name": "Append row in sheet",
+      "notesInFlow": true,
+      "notes": "Working as intended."
+    },
+    {
+      "parameters": {
+        "content": "## SETUP INSTRUCTIONS\n\n1. Set this workflow as the **Error Workflow** for your main pipeline: open the main workflow → Settings → Error Workflow → select this workflow.\n2. Replace `chatId` (`YOUR_TELEGRAM_CHAT_ID`) in the Telegram node — ideally a group with 2+ admins, not one person.\n3. Replace `documentId` (`YOUR_ERROR_LOG_SHEET_ID`) in the Google Sheets node with your own error-log sheet.\n4. Update the `executionUrl` expression in \"Edit Fields\" to point at your own n8n instance domain.\n5. Create `telegramApi` and `googleSheetsOAuth2Api` credentials.",
+        "height": 320,
+        "width": 460
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        7008,
+        3264
+      ],
+      "id": "ee429210-52e8-4a81-a2fd-ce39a108989e",
+      "name": "Setup Instructions1"
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "PLACEHOLDER_INSTANCE_ID"
+  }
+}
