@@ -8,6 +8,8 @@ workflow — it's the actual pipeline that catches every inbound lead from the
 website and turns it into a CRM record and a real-time team alert, with its own
 error-monitoring layer watching it in production.
 
+![n8n Lead Pipeline Canvas](screenshots/n8n-canvas.png)
+
 ---
 
 ### The problem
@@ -35,6 +37,8 @@ incomplete submissions are validated out before they ever touch the CRM.
 Duplicate submissions — someone double-tapping "Submit" on a slow connection —
 are caught and logged instead of creating two CRM records and firing two alerts.
 
+![Telegram New Lead Alert](screenshots/telegram-new-lead.png)
+
 ### The bug that made this worth writing about
 
 Partway through running this in production, I found that the Airtable node was
@@ -46,6 +50,8 @@ The workflow's execution log showed "Succeeded" on every single run. There was
 no error, because there was no failure — just a field pointed at the wrong
 source. It only surfaced because a parallel Google Sheets log, mapped
 correctly, didn't match what was in Airtable.
+
+![Sheets Audit Log](screenshots/sheets-audit-log.png)
 
 **The takeaway:** a green checkmark on an automation means it ran without
 throwing. It says nothing about whether the data going in is actually correct.
@@ -64,6 +70,8 @@ just a nice-to-have.
   and an audit trail instead of disappearing
 - Auditing production data against a source of truth, not just trusting
   execution status
+
+![Telegram Error Alerts](screenshots/telegram-error-alerts.png)
 
 ---
 
