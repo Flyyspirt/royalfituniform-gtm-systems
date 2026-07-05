@@ -1,0 +1,195 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## SETUP INSTRUCTIONS\n\nThis version delegates lead processing to a separate sub-workflow (see 02-lead-enrichment-routing.json in this same folder). Both must be imported for this to function.\n\n1. Import the sub-workflow FIRST, note its new workflow ID.\n2. In the \"Call Lead Enrichment & Routing\" node here, set workflowId to that ID.\n3. Webhook node — create a `httpHeaderAuth` credential and configure your form's fetch() to send the matching header.\n4. Google Sheets nodes — replace `YOUR_GOOGLE_SHEET_ID` with your own.\n5. Set this workflow's Error Workflow (Settings) to your error-handler workflow.",
+        "height": 320,
+        "width": 460
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-880, -1120],
+      "id": "sticky-setup-v3",
+      "name": "Setup Instructions"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst body = item.body || {};\n\nconst name = (body.name || '').trim() || 'Not provided';\nconst businessName = (body.businessName || '').trim() || 'Not provided';\nconst email = (body.email || '').trim();\nconst phone = (body.phone || '').trim();\nconst segment = body.segment || 'Not specified';\nconst volume = body.volume || 'Not specified';\nconst sourcePage = (body.sourcePage || '').replace('/', '') || 'unknown';\n\nconst emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\nconst phoneRegex = /^[+]?[\\d\\s-]{7,15}$/;\n\nconst emailValid = email ? emailRegex.test(email) : true;\nconst phoneValid = phoneRegex.test(phone);\nconst isValid = name !== 'Not provided' && phoneValid;\n\nlet validationReason = '';\nif (!isValid) {\n  const reasons = [];\n  if (name === 'Not provided') reasons.push('missing name');\n  if (!phoneValid) reasons.push('invalid or missing phone');\n  if (!emailValid) reasons.push('malformed email');\n  validationReason = reasons.join(', ');\n}\n\nconst submittedAtRaw = body.submittedAt || new Date().toISOString();\nlet submittedAt;\ntry {\n  submittedAt = new Date(submittedAtRaw).toLocaleString('en-IN', {\n    timeZone: 'Asia/Kolkata',\n    day: '2-digit',\n    month: 'short',\n    year: 'numeric',\n    hour: '2-digit',\n    minute: '2-digit',\n    hour12: true\n  });\n} catch (e) {\n  submittedAt = submittedAtRaw;\n}\n\nreturn [{\n  json: {\n    body: {\n      name,\n      businessName,\n      email,\n      phone,\n      segment,\n      volume,\n      submittedAt,\n      sourcePage\n    },\n    leadsource: 'website form',\n    status: isValid ? 'new lead' : 'invalid lead',\n    isValid,\n    validationReason,\n    emailValid,\n    phoneValid\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-96, -736],
+      "id": "baf9a3fe-cc58-4d97-a535-f1433edb9882",
+      "name": "Validate & Standardize",
+      "notesInFlow": true,
+      "notes": "Unchanged from prior version — fallback defaults, IST conversion with try/catch, phone/email regex validation."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            { "id": "is-valid-cond", "leftValue": "={{ $json.isValid }}", "rightValue": true, "operator": { "type": "boolean", "operation": "true" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [128, -736],
+      "id": "8ec15cef-c570-4024-a87e-e6183be26816",
+      "name": "Is Valid Lead?",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nif (!staticData.recentSubmissions) staticData.recentSubmissions = {};\n\nconst item = $input.first().json;\nconst key = `${(item.body.email || '').toLowerCase()}|${item.body.phone}`;\nconst now = Date.now();\nconst windowMs = 5 * 60 * 1000;\n\nfor (const k of Object.keys(staticData.recentSubmissions)) {\n  if (now - staticData.recentSubmissions[k] > windowMs) {\n    delete staticData.recentSubmissions[k];\n  }\n}\n\nconst isDuplicate = !!staticData.recentSubmissions[key];\nstaticData.recentSubmissions[key] = now;\n\nreturn [{\n  json: {\n    ...item,\n    isDuplicate\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [352, -832],
+      "id": "dc26407d-9319-4898-827f-3470da746304",
+      "name": "Dedup Check",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            { "id": "is-dup-cond", "leftValue": "={{ $json.isDuplicate }}", "rightValue": true, "operator": { "type": "boolean", "operation": "true" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [576, -832],
+      "id": "89a9cfd8-6b4c-4a6c-8612-8534ca9d2a84",
+      "name": "Is Duplicate?",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": { "__rl": true, "value": "YOUR_GOOGLE_SHEET_ID", "mode": "list", "cachedResultName": "Sheet1" },
+        "sheetName": { "__rl": true, "value": "gid=0", "mode": "list", "cachedResultName": "Sheet1" },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "name": "={{ $json.body.name }}",
+            "businessName": "={{ $json.body.businessName }}",
+            "email": "={{ $json.body.email }}",
+            "phone": "={{ $json.body.phone }}",
+            "segment": "={{ $json.body.segment }}",
+            "volume": "={{ $json.body.volume }}",
+            "submittedAt": "={{ $json.body.submittedAt }}",
+            "sourcePage": "={{ $json.body.sourcePage }}",
+            "leadsource": "={{ $json.leadsource }}",
+            "status": "={{ 'INVALID: ' + $json.validationReason }}"
+          },
+          "matchingColumns": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [352, -640],
+      "id": "8953ada6-2700-4711-b4e7-99e6a65a7f52",
+      "name": "Log Invalid Submission",
+      "notesInFlow": true,
+      "credentials": { "googleSheetsOAuth2Api": { "id": "PLACEHOLDER_CREDENTIAL_ID", "name": "Google Sheets - REDACTED" } }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": { "__rl": true, "value": "YOUR_GOOGLE_SHEET_ID", "mode": "list", "cachedResultName": "Sheet1" },
+        "sheetName": { "__rl": true, "value": "gid=0", "mode": "list", "cachedResultName": "Sheet1" },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "name": "={{ $json.body.name }}",
+            "businessName": "={{ $json.body.businessName }}",
+            "email": "={{ $json.body.email }}",
+            "phone": "={{ $json.body.phone }}",
+            "segment": "={{ $json.body.segment }}",
+            "volume": "={{ $json.body.volume }}",
+            "submittedAt": "={{ $json.body.submittedAt }}",
+            "sourcePage": "={{ $json.body.sourcePage }}",
+            "leadsource": "={{ $json.leadsource }}",
+            "status": "=DUPLICATE - suppressed (within 5 min window)"
+          },
+          "matchingColumns": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [800, -928],
+      "id": "ad972d1b-17b8-42a7-8a26-ea0e09a9190e",
+      "name": "Log Duplicate Submission",
+      "notesInFlow": true,
+      "credentials": { "googleSheetsOAuth2Api": { "id": "PLACEHOLDER_CREDENTIAL_ID", "name": "Google Sheets - REDACTED" } }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "your-webhook-path",
+        "authentication": "headerAuth",
+        "options": { "allowedOrigins": "*" }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [-320, -736],
+      "id": "36ef51a8-862d-481f-87ef-0a6081e871b8",
+      "name": "Webhook",
+      "webhookId": "PLACEHOLDER_WEBHOOK_ID",
+      "notesInFlow": true,
+      "credentials": { "httpHeaderAuth": { "id": "PLACEHOLDER_CREDENTIAL_ID", "name": "Header Auth - REDACTED" } },
+      "notes": "Requires a custom header 'royalfit-rfu' or your own shared-secret header name — confirm the header name matches what your website form sends."
+    },
+    {
+      "parameters": {
+        "workflowId": { "__rl": true, "value": "REPLACE_WITH_SUB_WORKFLOW_ID", "mode": "list", "cachedResultName": "Lead Enrichment & Routing" },
+        "workflowInputs": { "mappingMode": "defineBelow", "value": {}, "matchingColumns": [], "schema": [], "attemptToConvertTypes": false, "convertFieldsToString": true },
+        "mode": "each",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [800, -736],
+      "id": "47c8f0be-d650-4f4c-83df-9cb3110e91e9",
+      "name": "Call Lead Enrichment & Routing",
+      "notes": "ARCHITECTURE CHANGE (v3): Google Sheets/Airtable/Telegram writes moved out of this workflow entirely and into a dedicated sub-workflow, which now also handles returning-vs-new-lead detection, CRM update-or-create logic, email verification, and personalized email replies. This workflow's job is now purely: receive, authenticate, validate, dedup. workflowId must be set to your imported sub-workflow's ID after import — n8n does not preserve cross-workflow references automatically.",
+      "notesInFlow": true
+    }
+  ],
+  "connections": {
+    "Validate & Standardize": { "main": [[{ "node": "Is Valid Lead?", "type": "main", "index": 0 }]] },
+    "Is Valid Lead?": {
+      "main": [
+        [{ "node": "Dedup Check", "type": "main", "index": 0 }],
+        [{ "node": "Log Invalid Submission", "type": "main", "index": 0 }]
+      ]
+    },
+    "Dedup Check": { "main": [[{ "node": "Is Duplicate?", "type": "main", "index": 0 }]] },
+    "Is Duplicate?": {
+      "main": [
+        [{ "node": "Log Duplicate Submission", "type": "main", "index": 0 }],
+        [{ "node": "Call Lead Enrichment & Routing", "type": "main", "index": 0 }]
+      ]
+    },
+    "Webhook": { "main": [[{ "node": "Validate & Standardize", "type": "main", "index": 0 }]] }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "PLACEHOLDER_INSTANCE_ID"
+  }
+}

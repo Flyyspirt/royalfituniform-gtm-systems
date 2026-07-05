@@ -1,0 +1,379 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## SETUP INSTRUCTIONS\n\nThis workflow is called by the main lead pipeline via an Execute Workflow node — it does not have its own webhook and should not be triggered directly.\n\n1. Import this workflow, then copy its workflow ID into the main pipeline's \"Call Lead Enrichment & Routing\" node.\n2. Requires the community node `n8n-nodes-emailverify` installed on your n8n instance (Settings → Community Nodes) — this is NOT a core n8n node.\n3. Create credentials: `airtableTokenApi`, `googleSheetsOAuth2Api`, `telegramApi`, `gmailOAuth2`, `emailVerifyApi` (requires an EmailVerify.io account).\n4. Replace `YOUR_AIRTABLE_BASE_ID` / `YOUR_AIRTABLE_TABLE_ID`, `YOUR_GOOGLE_SHEET_ID`, `YOUR_TELEGRAM_CHAT_ID` throughout.\n5. Update the phone number and domain in both Gmail message bodies to your own business contact details.",
+        "height": 380,
+        "width": 480
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-680, 700],
+      "id": "sticky-setup-subwf",
+      "name": "Setup Instructions"
+    },
+    {
+      "parameters": {
+        "content": "## PRODUCTION NOTES\n\n1. **Exact-match bug (FIXED)** — CRM lookup previously used `FIND(phone, {phone}) > 0`, a substring match that could false-positive on phone numbers that are substrings of others. Changed to `EXACT()`.\n\n2. **Update record scope (FIXED)** — previously only refreshed status/timestamp/note on a returning inquiry, leaving stale segment/volume/business name if the customer's requirements changed. Now refreshes those fields too.\n\n3. **Email verification not gated (FIXED)** — EmailVerify.io's output includes a `status` field; both branches now route through an IF node checking `status equals 'valid'` before the Gmail send fires. Invalid/undeliverable addresses no longer get an automated reply — but the CRM write, Sheets log, and Telegram alert (all upstream, on separate parallel branches) are unaffected either way. Tuning note: verify whether 'catch-all' or 'risky' statuses should also pass — check real executions if legitimate leads seem to be missing their confirmation email.\n\n4. **Single-person Telegram alerts (recommendation, not applied)** — both alert nodes use one chatId. Move to a group with 2+ admins.\n\n5. **Search records on error (open)** — `onError: continueRegularOutput` means if the Airtable search itself fails (e.g. API outage), the lead silently routes to \"new\" instead of \"returning\" — acceptable as a fail-open default, but worth alerting on if it happens often (check the error-handler workflow's log for this node's name).",
+        "height": 460,
+        "width": 500
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-150, 680],
+      "id": "sticky-notes-subwf",
+      "name": "Production Notes"
+    },
+    {
+      "parameters": { "inputSource": "passthrough" },
+      "id": "c055762a-8fe7-4141-a639-df2372f30060",
+      "typeVersion": 1.1,
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "position": [-160, 992]
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": { "__rl": true, "value": "YOUR_AIRTABLE_BASE_ID", "mode": "list", "cachedResultName": "CRM Base" },
+        "table": { "__rl": true, "value": "YOUR_AIRTABLE_TABLE_ID", "mode": "list", "cachedResultName": "form submitted" },
+        "filterByFormula": "=EXACT({phone}, \"{{ $json.body.phone }}\")",
+        "returnAll": false,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [64, 992],
+      "id": "ad28ed6b-6974-4929-92f3-6e4269277e52",
+      "name": "Search Existing CRM Record",
+      "alwaysOutputData": true,
+      "credentials": { "airtableTokenApi": { "id": "PLACEHOLDER_CREDENTIAL_ID", "name": "Airtable - REDACTED" } },
+      "onError": "continueRegularOutput",
+      "notes": "BUG FIX: filterByFormula changed from FIND() (substring match) to EXACT() (exact match) to prevent one phone number falsely matching another that contains it as a substring. onError=continueRegularOutput means an Airtable outage routes the lead to the 'new' branch rather than blocking the pipeline — a deliberate fail-open choice, but confirm this doesn't happen silently often."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 3 },
+          "conditions": [
+            { "id": "aa20a54e-0801-4f27-9d75-88e34381c40d", "leftValue": "={{ $json.id }}", "rightValue": 0, "operator": { "type": "string", "operation": "exists", "singleValue": true } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [288, 992],
+      "id": "fd96cdc8-d81e-496a-9121-084e06d476ae",
+      "name": "Is Returning Lead?"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": { "__rl": true, "value": "YOUR_AIRTABLE_BASE_ID", "mode": "list", "cachedResultName": "CRM Base" },
+        "table": { "__rl": true, "value": "YOUR_AIRTABLE_TABLE_ID", "mode": "list", "cachedResultName": "form submitted" },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.recordId }}",
+            "status": "Returning Inquiry",
+            "submittedAt": "={{ $json.submittedAt }}",
+            "Note": "={{ $json.note }}",
+            "Name": "={{ $json.Name }}",
+            "businessName": "={{ $json.businessName }}",
+            "email": "={{ $json.email }}",
+            "segment": "={{ $json.segment }}",
+            "volume": "={{ $json.volume }}"
+          },
+          "matchingColumns": ["id"],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [736, 896],
+      "id": "ce5aa96e-17de-4f24-aab4-483acbc1d848",
+      "name": "Update CRM Record",
+      "notes": "FIXED: previously only refreshed status/submittedAt/Note, leaving business name/segment/volume stale if a returning customer's requirements changed since their last inquiry. Now refreshes those fields too.",
+      "notesInFlow": true,
+      "credentials": { "airtableTokenApi": { "id": "PLACEHOLDER_CREDENTIAL_ID", "name": "Airtable - REDACTED" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const trigger = $('When Executed by Another Workflow').first().json;\nconst lead = trigger.body;\nconst leadsource = trigger.leadsource || 'website form';\n\nconst raw = lead.submittedAt || new Date().toISOString();\nconst submittedAtIST = new Date(raw).toLocaleString('en-IN', {\n  timeZone: 'Asia/Kolkata',\n  day: '2-digit',\n  month: 'short',\n  year: 'numeric',\n  hour: '2-digit',\n  minute: '2-digit',\n  hour12: true\n});\n\nconst sourcePage = (lead.sourcePage && lead.sourcePage !== 'unknown')\n  ? lead.sourcePage\n  : 'Website Form';\n\nconst note =\n  'Returning inquiry from ' + lead.name + ' (' + lead.businessName + '). ' +\n  'Segment: ' + lead.segment + ', Volume: ' + lead.volume + '. ' +\n  'Re-submitted via ' + sourcePage + ' on ' + submittedAtIST + '.';\n\nreturn [{\n  json: {\n    recordId:     $input.first().json.id,\n    Name:         lead.name,\n    businessName: lead.businessName,\n    email:        lead.email,\n    phone:        lead.phone,\n    segment:      lead.segment,\n    volume:       lead.volume,\n    sourcePage:   sourcePage,\n    leadsource:   leadsource,\n    submittedAt:  submittedAtIST,\n    status:       'Returning Inquiry',\n    note:         note\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [512, 704],
+      "id": "ada72b81-66be-4763-9061-2f88a0845b55",
+      "name": "Format Returning Lead Data"
+    },
+    {
+      "parameters": { "email": "={{ $json.fields.email }}" },
+      "type": "n8n-nodes-emailverify.emailVerify",
+      "typeVersion": 1,
+      "position": [960, 896],
+      "id": "ecabc201-3504-4d87-a863-2396b22837b3",
+      "name": "Verify Email (Returning)",
+      "notes": "Community node — requires n8n-nodes-emailverify installed. Output includes a 'status' field; 'valid' is the pass value, gated by 'Is Email Valid? (Returning)' below.",
+      "credentials": { "emailVerifyApi": { "id": "PLACEHOLDER_CREDENTIAL_ID", "name": "EmailVerify.io - REDACTED" } }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 3 },
+          "conditions": [
+            { "id": "0a594d30-0247-48d4-bdd3-78d82e74837f", "leftValue": "={{ $json.status }}", "rightValue": "valid", "operator": { "type": "string", "operation": "equals" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [1168, 896],
+      "id": "ffde9d3b-1caf-471f-af6d-ac53c2d426a3",
+      "name": "Is Email Valid? (Returning)",
+      "notes": "FIXED (previously open issue): gates the acknowledgment email on EmailVerify.io's result. Only 'valid' passes — consider whether 'catch-all' domains should also pass if legitimate leads are getting silently skipped. False branch is intentionally left unconnected: no email sends, but CRM update/log/Telegram alert already happened upstream and are unaffected."
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Format Returning Lead Data').item.json.email }}",
+        "subject": "=Good to hear from you again, {{ $('Format Returning Lead Data').item.json.Name }}",
+        "emailType": "text",
+        "message": "=Hi {{ $('Format Returning Lead Data').item.json.Name }},\n\nWe noticed this is not your first time reaching out to \nRoyal Fit Uniform — and that means a lot to us.\n\nYou have enquired for {{ $('Format Returning Lead Data').item.json.segment }} uniforms \nfor a team of {{ $('Format Returning Lead Data').item.json.volume }} staff. We have updated \nyour record and our team will reach you on \n{{ $('Format Returning Lead Data').item.json.phone }} within 24 hours.\n\nWhile you wait, here is what we will bring to the conversation:\n\n→ A revised quote based on your current volume\n→ Updated fabric and finish options for {{ $('Format Returning Lead Data').item.json.segment }} use\n→ Any changes from your previous requirement noted and addressed\n\nWe appreciate you coming back. That tells us we did \nsomething right the first time — and we intend to do \nbetter this time.\n\nWarm regards,\nRoyal Fit Uniform Team\n[YOUR BUSINESS PHONE]\n[YOUR DOMAIN]",
+        "options": { "appendAttribution": false }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [1184, 896],
+      "id": "f916ac7f-228b-4b29-b5c4-a61fa46d322d",
+      "name": "Email: Returning Lead",
+      "webhookId": "PLACEHOLDER_WEBHOOK_ID",
+      "credentials": { "gmailOAuth2": { "id": "PLACEHOLDER_CREDENTIAL_ID", "name": "Gmail - REDACTED" } }
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=⚠️ Returning Royal Fit Contact\n\n👤 Name: {{ $('Format Returning Lead Data').item.json.Name }}\n🏢 Business: {{ $('Format Returning Lead Data').item.json.businessName }}\n📞 Phone: {{ $('Format Returning Lead Data').item.json.phone }}\n📧 Email: {{ $('Format Returning Lead Data').item.json.email }}\n🏨 Segment: {{ $('Format Returning Lead Data').item.json.segment }}\n👥 Volume: {{ $('Format Returning Lead Data').item.json.volume }}\n🌐 Source: {{ $('Format Returning Lead Data').item.json.sourcePage }}\n🕐 Re-submitted: {{ $('Format Returning Lead Data').item.json.submittedAt }}\n\nStatus: RETURNING — already in CRM\nAction: Check previous notes before calling",
+        "additionalFields": { "appendAttribution": false }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [736, 704],
+      "id": "13141042-11ef-4977-ba3b-ad4f19f93b79",
+      "name": "Alert: Returning Lead",
+      "webhookId": "PLACEHOLDER_WEBHOOK_ID",
+      "credentials": { "telegramApi": { "id": "PLACEHOLDER_CREDENTIAL_ID", "name": "Telegram - REDACTED" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const trigger = $('When Executed by Another Workflow').first().json;\nconst lead = trigger.body;\nconst leadsource = trigger.leadsource || 'website form';\n\nconst raw = lead.submittedAt || new Date().toISOString();\nconst submittedAtIST = new Date(raw).toLocaleString('en-IN', {\n  timeZone: 'Asia/Kolkata',\n  day: '2-digit',\n  month: 'short',\n  year: 'numeric',\n  hour: '2-digit',\n  minute: '2-digit',\n  hour12: true\n});\n\nconst sourcePage = (lead.sourcePage && lead.sourcePage !== 'unknown')\n  ? lead.sourcePage\n  : 'Website Form';\n\nconst note =\n  'New inquiry from ' + lead.name + ' (' + lead.businessName + '). ' +\n  'Segment: ' + lead.segment + ', Volume: ' + lead.volume + '. ' +\n  'Submitted via ' + sourcePage + ' on ' + submittedAtIST + '.';\n\nreturn [{\n  json: {\n    Name:         lead.name,\n    businessName: lead.businessName,\n    email:        lead.email,\n    phone:        lead.phone,\n    segment:      lead.segment,\n    volume:       lead.volume,\n    sourcePage:   sourcePage,\n    leadsource:   leadsource,\n    submittedAt:  submittedAtIST,\n    status:       'New Lead',\n    note:         note\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [512, 1280],
+      "id": "c45dd93d-2e96-41db-898e-c581f86fcfc9",
+      "name": "Format New Lead Data"
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": { "__rl": true, "value": "YOUR_AIRTABLE_BASE_ID", "mode": "list", "cachedResultName": "CRM Base" },
+        "table": { "__rl": true, "value": "YOUR_AIRTABLE_TABLE_ID", "mode": "list", "cachedResultName": "form submitted" },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Name": "={{ $json.Name }}",
+            "businessName": "={{ $json.businessName }}",
+            "email": "={{ $json.email }}",
+            "phone": "={{ $json.phone }}",
+            "segment": "={{ $json.segment }}",
+            "volume": "={{ $json.volume }}",
+            "sourcePage": "={{ $json.sourcePage }}",
+            "leadsource": "={{ $json.leadsource }}",
+            "submittedAt": "={{ $json.submittedAt }}",
+            "status": "={{ $json.status }}",
+            "Note": "={{ $json.note }}"
+          },
+          "matchingColumns": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [736, 1280],
+      "id": "d3712146-275e-4b79-8896-fd1933fed416",
+      "name": "Create CRM Record",
+      "credentials": { "airtableTokenApi": { "id": "PLACEHOLDER_CREDENTIAL_ID", "name": "Airtable - REDACTED" } }
+    },
+    {
+      "parameters": { "email": "={{ $json.fields.email }}" },
+      "type": "n8n-nodes-emailverify.emailVerify",
+      "typeVersion": 1,
+      "position": [960, 1472],
+      "id": "1b9fbed0-e6ff-4a08-983e-56d6eaebb841",
+      "name": "Verify Email (New)",
+      "notes": "Same as 'Verify Email (Returning)' — gated by 'Is Email Valid? (New)' below.",
+      "credentials": { "emailVerifyApi": { "id": "PLACEHOLDER_CREDENTIAL_ID", "name": "EmailVerify.io - REDACTED" } }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 3 },
+          "conditions": [
+            { "id": "27b31eeb-026a-44ea-9321-aa70f13d38e7", "leftValue": "={{ $json.status }}", "rightValue": "valid", "operator": { "type": "string", "operation": "equals" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [1168, 1472],
+      "id": "21475045-f9ba-4cce-b6b4-8e32369ddbea",
+      "name": "Is Email Valid? (New)",
+      "notes": "FIXED (previously open issue): same gate as the returning-lead branch — only 'valid' passes."
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.email }}",
+        "subject": "Your Royal Fit Uniform inquiry has been received",
+        "emailType": "text",
+        "message": "=Hi {{ $('Create CRM Record').item.json.fields.Name }},\n\nThank you for reaching out to Royal Fit Uniform.\n\nWe have received your inquiry for {{ $('Create CRM Record').item.json.fields.segment }}\nuniforms for a team of {{ $('Create CRM Record').item.json.fields.volume }} staff.\n\nWhat happens next:\n\n→ Our team will contact you within 24 hours on {{ $('Create CRM Record').item.json.fields.phone }}\n→ We will prepare a customised quote for your requirements\n→ Fabric samples available on request\n\nFor immediate queries:\n📞 [YOUR BUSINESS PHONE]\n🌐 [YOUR DOMAIN]\n\nWarm regards,\nRoyal Fit Uniform Team",
+        "options": { "appendAttribution": false }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [1184, 1472],
+      "id": "963ff16c-ded4-458d-aabf-536a8a834b87",
+      "name": "Email: New Lead",
+      "webhookId": "PLACEHOLDER_WEBHOOK_ID",
+      "credentials": { "gmailOAuth2": { "id": "PLACEHOLDER_CREDENTIAL_ID", "name": "Gmail - REDACTED" } }
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=🔔 New Royal Fit Lead\n   \n👤 Name:     {{ $json.fields.Name }}\n🏢 Business: {{ $json.fields.businessName }}\n📞 Phone:    {{ $json.fields.phone }}\n📧 Email:    {{ $json.fields.email }}\n🏨 Segment:  {{ $json.fields.segment }}\n👥 Volume:   {{ $json.fields.volume }}\n🌐 Source:   {{ $json.fields.sourcePage }}\n🕐 Submitted:{{ $('Format New Lead Data').item.json.submittedAt }}\n\nStatus: NEW — first contact\nAction: Call within 24 hours",
+        "additionalFields": { "appendAttribution": false }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [960, 1088],
+      "id": "af9ab2a2-6b87-4d71-a0ee-485254fe2a62",
+      "name": "Alert: New Lead",
+      "webhookId": "PLACEHOLDER_WEBHOOK_ID",
+      "credentials": { "telegramApi": { "id": "PLACEHOLDER_CREDENTIAL_ID", "name": "Telegram - REDACTED" } }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": { "__rl": true, "value": "YOUR_GOOGLE_SHEET_ID", "mode": "list", "cachedResultName": "Sheet1" },
+        "sheetName": { "__rl": true, "value": "gid=0", "mode": "list", "cachedResultName": "Sheet1" },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "name": "={{ $('Format New Lead Data').item.json.Name }}",
+            "businessName": "={{ $('Format New Lead Data').item.json.businessName }}",
+            "email": "={{ $('Format New Lead Data').item.json.email }}",
+            "phone": "={{ $('Format New Lead Data').item.json.phone }}",
+            "segment": "={{ $('Format New Lead Data').item.json.segment }}",
+            "volume": "={{ $('Format New Lead Data').item.json.volume }}",
+            "submittedAt": "={{ $('Format New Lead Data').item.json.submittedAt }}",
+            "sourcePage": "={{ $('Format New Lead Data').item.json.sourcePage }}",
+            "leadsource": "={{ $('Format New Lead Data').item.json.leadsource }}",
+            "status": "={{ $('Format New Lead Data').item.json.status }}",
+            "note": "={{ $('Format New Lead Data').item.json.note }}"
+          },
+          "matchingColumns": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [960, 1280],
+      "id": "c3fe2359-4b93-4b41-9c2c-2f8ad8ec1512",
+      "name": "Log New Lead",
+      "credentials": { "googleSheetsOAuth2Api": { "id": "PLACEHOLDER_CREDENTIAL_ID", "name": "Google Sheets - REDACTED" } }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": { "__rl": true, "value": "YOUR_GOOGLE_SHEET_ID", "mode": "list", "cachedResultName": "Sheet1" },
+        "sheetName": { "__rl": true, "value": "gid=0", "mode": "list", "cachedResultName": "Sheet1" },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "name": "={{ $json.Name }}",
+            "businessName": "={{ $json.businessName }}",
+            "email": "={{ $json.email }}",
+            "phone": "={{ $json.phone }}",
+            "segment": "={{ $json.segment }}",
+            "volume": "={{ $json.volume }}",
+            "submittedAt": "={{ $json.submittedAt }}",
+            "sourcePage": "={{ $json.sourcePage }}",
+            "leadsource": "={{ $json.leadsource }}",
+            "status": "={{ $json.status }}",
+            "note": "={{ $json.note }}"
+          },
+          "matchingColumns": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [736, 512],
+      "id": "58d3225a-281b-4779-8896-f82e96546287",
+      "name": "Log Returning Lead",
+      "credentials": { "googleSheetsOAuth2Api": { "id": "PLACEHOLDER_CREDENTIAL_ID", "name": "Google Sheets - REDACTED" } }
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": { "main": [[{ "node": "Search Existing CRM Record", "type": "main", "index": 0 }]] },
+    "Search Existing CRM Record": { "main": [[{ "node": "Is Returning Lead?", "type": "main", "index": 0 }]] },
+    "Is Returning Lead?": {
+      "main": [
+        [{ "node": "Format Returning Lead Data", "type": "main", "index": 0 }],
+        [{ "node": "Format New Lead Data", "type": "main", "index": 0 }]
+      ]
+    },
+    "Update CRM Record": { "main": [[{ "node": "Verify Email (Returning)", "type": "main", "index": 0 }]] },
+    "Format Returning Lead Data": {
+      "main": [
+        [
+          { "node": "Update CRM Record", "type": "main", "index": 0 },
+          { "node": "Log Returning Lead", "type": "main", "index": 0 },
+          { "node": "Alert: Returning Lead", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Verify Email (Returning)": { "main": [[{ "node": "Is Email Valid? (Returning)", "type": "main", "index": 0 }]] },
+    "Is Email Valid? (Returning)": { "main": [[{ "node": "Email: Returning Lead", "type": "main", "index": 0 }]] },
+    "Format New Lead Data": { "main": [[{ "node": "Create CRM Record", "type": "main", "index": 0 }]] },
+    "Create CRM Record": {
+      "main": [
+        [
+          { "node": "Verify Email (New)", "type": "main", "index": 0 },
+          { "node": "Alert: New Lead", "type": "main", "index": 0 },
+          { "node": "Log New Lead", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Verify Email (New)": { "main": [[{ "node": "Is Email Valid? (New)", "type": "main", "index": 0 }]] },
+    "Is Email Valid? (New)": { "main": [[{ "node": "Email: New Lead", "type": "main", "index": 0 }]] }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "PLACEHOLDER_INSTANCE_ID"
+  }
+}

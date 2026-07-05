@@ -8,8 +8,13 @@ Instead of treating automations as isolated, one-off scripts, this repository tr
 
 | System | Status | What it does |
 | :--- | :--- | :--- |
-| **[01 Lead Pipeline](./01-lead-pipeline)** | Live | Form → validation → dedup → CRM/alerting |
+| **[01 Lead Pipeline](./01-lead-pipeline)** | Live | Form → validation → dedup → enrichment sub-workflow (returning lead detection + email reply) → CRM/alerting |
 | **[02 Quote System](./02-quote-system)** | Building | (Scope to be defined) |
+
+## Prerequisites
+
+If you intend to import and run these workflows on your own n8n instance, you will need the following community nodes installed:
+- `n8n-nodes-emailverify`
 
 ## Repository Structure
 

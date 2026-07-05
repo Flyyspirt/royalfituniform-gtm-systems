@@ -75,5 +75,63 @@ just a nice-to-have.
 
 ---
 
+## Update: Lead Pipeline v3 — Sub-Workflow Split + Returning-Lead Detection
+
+## What changed from v2 → v3
+
+The pipeline outgrew a single workflow. v2 fanned out directly to Sheets/Airtable/Telegram
+from the main workflow. v3 splits responsibility:
+
+```mermaid
+flowchart LR
+    A[Website Form] -->|POST + auth header| B(Webhook)
+    B --> C[Validate & Standardize]
+    C --> D{Is Valid Lead?}
+    D -- No --> E[Log Invalid Submission]
+    D -- Yes --> F[Dedup Check]
+    F --> G{Is Duplicate?}
+    G -- Yes --> H[Log Duplicate]
+    G -- No --> I[Call: Lead Enrichment & Routing<br/>sub-workflow]
+
+    I --> J[Search Existing CRM Record]
+    J --> K{Is Returning Lead?}
+    K -- Yes --> L[Update CRM Record<br/>+ log + alert + verify + email]
+    K -- No --> M[Create CRM Record<br/>+ log + alert + verify + email]
+```
+
+**Main workflow** now does exactly four things: receive, authenticate, validate, dedup —
+then hands off. Everything after that lives in a separate, independently testable
+sub-workflow.
+
+**New capability: returning-lead detection.** Every submission is checked against the
+CRM by exact phone match before deciding whether to create a new record or update an
+existing one. A returning contact gets a different Telegram alert (flagged for context
+review before calling) and a different email tone (acknowledging the repeat inquiry)
+than a first-time lead.
+
+
+**New capability: email verification + automated reply.** Every lead — new or returning —
+now gets an automated acknowledgment email via Gmail, gated behind an EmailVerify.io
+check on the address before sending.
+
+## Why this is a meaningful engineering decision, not just refactoring
+
+Splitting into a sub-workflow isn't just tidiness. It means:
+- The enrichment/routing logic can be tested and modified independently of the
+  intake/validation logic — a change to the email template doesn't require touching
+  the webhook or dedup logic at all.
+- The main workflow's job description got *simpler*, not more complex, even though the
+  system as a whole does more. That's the actual signal of good system design — total
+  capability goes up, per-component complexity goes down.
+
+## Known limitation, documented honestly
+
+Email verification currently runs but its result isn't enforced — the acknowledgment
+email sends regardless of whether EmailVerify.io flags the address as valid or not.
+This is called out directly in the sub-workflow's sticky notes rather than hidden,
+because a portfolio artifact that only shows finished, perfect systems is less credible
+than one that shows exactly where the edges are and why.
+
+---
 *Full sanitized workflow JSON and setup documentation available on
 [GitHub →]()*
