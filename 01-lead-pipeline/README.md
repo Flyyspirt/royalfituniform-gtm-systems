@@ -139,13 +139,13 @@ Splitting into a sub-workflow isn't just tidiness. It means:
   system as a whole does more. That's the actual signal of good system design — total
   capability goes up, per-component complexity goes down.
 
-## Known limitation, documented honestly
+## Iterating on Production: Gating the Email Step
 
-Email verification currently runs but its result isn't enforced — the acknowledgment
-email sends regardless of whether EmailVerify.io flags the address as valid or not.
-This is called out directly in the sub-workflow's sticky notes rather than hidden,
-because a portfolio artifact that only shows finished, perfect systems is less credible
-than one that shows exactly where the edges are and why.
+In earlier versions, email verification ran but wasn't strictly enforced — a limitation that left the business exposed to hard bounces. 
+
+In the current version, the acknowledgment email is explicitly gated behind an `If` node checking the `EmailVerify.io` output. If an address is flagged as invalid, the workflow drops the email execution to protect the domain's sender reputation. 
+
+Crucially, because of the modular design, this validation gate only stops the email. The CRM write, the Sheets audit log, and the Telegram alert all happen *upstream* on parallel branches. The sales team still receives the lead and can reach out by phone, even if the email was malformed. This is how you design for resilience: a bad input halts the specific action it would break, but it never silently kills the entire pipeline.
 
 ---
 *Full sanitized workflow JSON and setup documentation available on
