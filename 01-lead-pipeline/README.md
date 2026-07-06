@@ -114,6 +114,21 @@ than a first-time lead.
 now gets an automated acknowledgment email via Gmail, gated behind an EmailVerify.io
 check on the address before sending.
 
+### Visualizing v3
+
+**Main Workflow (Intake & Validation)**
+![n8n Main Workflow v3](screenshots/n8n-canvas-v3.png)
+
+**Sub-Workflow (Enrichment & Routing)**
+![n8n Sub-Workflow v3](screenshots/n8n-subworkflow-v3.png)
+
+**Telegram Alerts (New vs Returning)**
+![Telegram Alerts v3](screenshots/telegram-alerts-v3.png)
+
+**Automated Email Replies**
+![Email - New Lead](screenshots/email-new.png)
+![Email - Returning Lead](screenshots/email-returning.png)
+
 ## Why this is a meaningful engineering decision, not just refactoring
 
 Splitting into a sub-workflow isn't just tidiness. It means:
