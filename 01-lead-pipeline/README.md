@@ -8,7 +8,7 @@ workflow — it's the actual pipeline that catches every inbound lead from the
 website and turns it into a CRM record and a real-time team alert, with its own
 error-monitoring layer watching it in production.
 
-![n8n Lead Pipeline Canvas](screenshots/n8n-canvas.png)
+![n8n Lead Pipeline Canvas](screenshots/n8n-canvas-v3.png)
 
 ---
 
@@ -37,7 +37,7 @@ incomplete submissions are validated out before they ever touch the CRM.
 Duplicate submissions — someone double-tapping "Submit" on a slow connection —
 are caught and logged instead of creating two CRM records and firing two alerts.
 
-![Telegram New Lead Alert](screenshots/telegram-new-lead.png)
+![Telegram New Lead Alert](screenshots/telegram-alerts-v3.png)
 
 ### The bug that made this worth writing about
 
